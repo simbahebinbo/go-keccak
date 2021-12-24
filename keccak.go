@@ -7,9 +7,9 @@ import (
 )
 
 const (
-	domainNone  = 1
-	domainSHA3  = 0x06
-	domainSHAKE = 0x1f
+	domainNone  = 1    //padding尾部的1
+	domainSHA3  = 0x06 //SHA3标准的参数，没用
+	domainSHAKE = 0x1f //SHAKE标准的参数，没用
 )
 
 const rounds = 24
@@ -30,35 +30,23 @@ var roundConstants = []uint64{
 }
 
 type keccak struct {
-	S         [25]uint64
-	size      int
-	blockSize int
-	buf       []byte
-	domain    byte
+	S         [25]uint64 //25 * 64 = 1600
+	size      int        //32
+	blockSize int        //136 * 8 = 1088
+	buf       []byte     //缓存
+	domain    byte       //padding尾部的1
 }
 
 func newKeccak(capacity, output int, domain byte) hash.Hash {
 	var h keccak
-	h.size = output / 8
-	h.blockSize = (200 - capacity/8)
-	h.domain = domain
+	h.size = output / 8              //256 / 8 = 32bits的Words
+	h.blockSize = (200 - capacity/8) //200 - 512/8 = 200 - 64 = 136   136 * 8 = 1088
+	h.domain = domain                ////padding尾部的1
 	return &h
-}
-
-func New224() hash.Hash {
-	return newKeccak(224*2, 224, domainNone)
 }
 
 func New256() hash.Hash {
 	return newKeccak(256*2, 256, domainNone)
-}
-
-func New384() hash.Hash {
-	return newKeccak(384*2, 384, domainNone)
-}
-
-func New512() hash.Hash {
-	return newKeccak(512*2, 512, domainNone)
 }
 
 func (k *keccak) Write(b []byte) (int, error) {
@@ -80,7 +68,7 @@ func (k *keccak) Write(b []byte) (int, error) {
 		k.buf = nil
 	}
 
-	for len(b) >= k.blockSize {
+	for len(b) >= k.blockSize { //blockSize = 136
 		k.absorb(b[:k.blockSize])
 		b = b[k.blockSize:]
 	}
@@ -98,9 +86,9 @@ func (k0 *keccak) Sum(b []byte) []byte {
 
 func (k *keccak) Reset() {
 	for i := range k.S {
-		k.S[i] = 0
+		k.S[i] = 0 //all nil
 	}
-	k.buf = nil
+	k.buf = nil // all nil
 }
 
 func (k *keccak) Size() int {
@@ -111,24 +99,24 @@ func (k *keccak) BlockSize() int {
 	return k.blockSize
 }
 
-func (k *keccak) absorb(block []byte) {
+func (k *keccak) absorb(block []byte) { //block = 1088
 	if len(block) != k.blockSize {
 		panic("absorb() called with invalid block size")
 	}
 
-	for i := 0; i < k.blockSize/8; i++ {
-		k.S[i] ^= uint64le(block[i*8:])
+	for i := 0; i < k.blockSize/8; i++ { //136/8=17
+		k.S[i] ^= uint64le(block[i*8:]) //
 	}
-	keccakf(&k.S)
+
+	keccakf(&k.S) //S[0]-S[24], 25 * 64 = 1600
 }
 
 func (k *keccak) pad(block []byte) []byte {
+	padded := make([]byte, k.blockSize) //  blocksize = 136, byte = 8, 136 * 8 = 1088
 
-	padded := make([]byte, k.blockSize)
-
-	copy(padded, k.buf)
-	padded[len(k.buf)] = k.domain
-	padded[len(padded)-1] |= 0x80
+	copy(padded, k.buf)           //func copy(destination, source []Type) int
+	padded[len(k.buf)] = k.domain //消息尾部padding 1
+	padded[len(padded)-1] |= 0x80 //最尾部padding 0x80
 
 	return padded
 }
@@ -139,11 +127,11 @@ func (k *keccak) final() {
 }
 
 func (k *keccak) squeeze(b []byte) []byte {
-	buf := make([]byte, 8*len(k.S))
-	n := k.size
+	buf := make([]byte, 8*len(k.S)) //1088 bits
+	n := k.size                     //136
 	for {
 		for i := range k.S {
-			putUint64le(buf[i*8:], k.S[i])
+			putUint64le(buf[i*8:], k.S[i]) //uint64 * 25  to byte 8 * 200
 		}
 		if n <= k.blockSize {
 			b = append(b, buf[:n]...)
@@ -153,17 +141,20 @@ func (k *keccak) squeeze(b []byte) []byte {
 		n -= k.blockSize
 		keccakf(&k.S)
 	}
+
 	return b
 }
 
 func keccakf(S *[25]uint64) {
-	var bc0, bc1, bc2, bc3, bc4 uint64
-	var S0, S1, S2, S3, S4 uint64
+	var bc0, bc1, bc2, bc3, bc4 uint64 // 64 * 5 =320
+
+	var S0, S1, S2, S3, S4 uint64 // 64 * 25 = 1600
 	var S5, S6, S7, S8, S9 uint64
 	var S10, S11, S12, S13, S14 uint64
 	var S15, S16, S17, S18, S19 uint64
 	var S20, S21, S22, S23, S24 uint64
-	var tmp uint64
+
+	var tmp uint64 //64
 
 	S0, S1, S2, S3, S4 = S[0], S[1], S[2], S[3], S[4]
 	S5, S6, S7, S8, S9 = S[5], S[6], S[7], S[8], S[9]
@@ -173,36 +164,38 @@ func keccakf(S *[25]uint64) {
 
 	for r := 0; r < rounds; r++ {
 		// theta
-		bc0 = S0 ^ S5 ^ S10 ^ S15 ^ S20
+		// C[x] = A[x,0] xor A[x,1] xor A[x,2] xor A[x,3] xor A[x,4], for x in 0…4
+		bc0 = S0 ^ S5 ^ S10 ^ S15 ^ S20 //
 		bc1 = S1 ^ S6 ^ S11 ^ S16 ^ S21
 		bc2 = S2 ^ S7 ^ S12 ^ S17 ^ S22
 		bc3 = S3 ^ S8 ^ S13 ^ S18 ^ S23
 		bc4 = S4 ^ S9 ^ S14 ^ S19 ^ S24
-		tmp = bc4 ^ (bc1<<1 | bc1>>(64-1))
+
+		tmp = bc4 ^ (bc1<<1 | bc1>>(64-1)) //D[x] = C[x-1] xor rot(C[x+1],1), for x = 0
 		S0 ^= tmp
 		S5 ^= tmp
 		S10 ^= tmp
 		S15 ^= tmp
 		S20 ^= tmp
-		tmp = bc0 ^ (bc2<<1 | bc2>>(64-1))
+		tmp = bc0 ^ (bc2<<1 | bc2>>(64-1)) //D[x] = C[x-1] xor rot(C[x+1],1), for x = 1
 		S1 ^= tmp
 		S6 ^= tmp
 		S11 ^= tmp
 		S16 ^= tmp
 		S21 ^= tmp
-		tmp = bc1 ^ (bc3<<1 | bc3>>(64-1))
+		tmp = bc1 ^ (bc3<<1 | bc3>>(64-1)) //D[x] = C[x-1] xor rot(C[x+1],1), for x = 2
 		S2 ^= tmp
 		S7 ^= tmp
 		S12 ^= tmp
 		S17 ^= tmp
 		S22 ^= tmp
-		tmp = bc2 ^ (bc4<<1 | bc4>>(64-1))
+		tmp = bc2 ^ (bc4<<1 | bc4>>(64-1)) //D[x] = C[x-1] xor rot(C[x+1],1), for x = 3
 		S3 ^= tmp
 		S8 ^= tmp
 		S13 ^= tmp
 		S18 ^= tmp
 		S23 ^= tmp
-		tmp = bc3 ^ (bc0<<1 | bc0>>(64-1))
+		tmp = bc3 ^ (bc0<<1 | bc0>>(64-1)) //D[x] = C[x-1] xor rot(C[x+1],1), for x = 4
 		S4 ^= tmp
 		S9 ^= tmp
 		S14 ^= tmp
@@ -210,26 +203,31 @@ func keccakf(S *[25]uint64) {
 		S24 ^= tmp
 
 		// rho phi
+		// B[y,2*x+3*y] = rot(A[x,y], r[x,y]), for (x,y) in (0…4,0…4)
 		tmp = S1
 		tmp, S10 = S10, tmp<<1|tmp>>(64-1)
 		tmp, S7 = S7, tmp<<3|tmp>>(64-3)
 		tmp, S11 = S11, tmp<<6|tmp>>(64-6)
 		tmp, S17 = S17, tmp<<10|tmp>>(64-10)
+
 		tmp, S18 = S18, tmp<<15|tmp>>(64-15)
 		tmp, S3 = S3, tmp<<21|tmp>>(64-21)
 		tmp, S5 = S5, tmp<<28|tmp>>(64-28)
 		tmp, S16 = S16, tmp<<36|tmp>>(64-36)
 		tmp, S8 = S8, tmp<<45|tmp>>(64-45)
+
 		tmp, S21 = S21, tmp<<55|tmp>>(64-55)
 		tmp, S24 = S24, tmp<<2|tmp>>(64-2)
 		tmp, S4 = S4, tmp<<14|tmp>>(64-14)
 		tmp, S15 = S15, tmp<<27|tmp>>(64-27)
 		tmp, S23 = S23, tmp<<41|tmp>>(64-41)
+
 		tmp, S19 = S19, tmp<<56|tmp>>(64-56)
 		tmp, S13 = S13, tmp<<8|tmp>>(64-8)
 		tmp, S12 = S12, tmp<<25|tmp>>(64-25)
 		tmp, S2 = S2, tmp<<43|tmp>>(64-43)
 		tmp, S20 = S20, tmp<<62|tmp>>(64-62)
+
 		tmp, S14 = S14, tmp<<18|tmp>>(64-18)
 		tmp, S22 = S22, tmp<<39|tmp>>(64-39)
 		tmp, S9 = S9, tmp<<61|tmp>>(64-61)
@@ -237,6 +235,7 @@ func keccakf(S *[25]uint64) {
 		S1 = tmp<<44 | tmp>>(64-44)
 
 		// chi
+		// A[x,y] = B[x,y] xor ((not B[x+1,y]) and B[x+2,y]),  for (x,y) in (0…4,0…4)
 		bc0 = S0
 		bc1 = S1
 		bc2 = S2
@@ -247,6 +246,7 @@ func keccakf(S *[25]uint64) {
 		S2 ^= (^bc3) & bc4
 		S3 ^= (^bc4) & bc0
 		S4 ^= (^bc0) & bc1
+
 		bc0 = S5
 		bc1 = S6
 		bc2 = S7
@@ -257,6 +257,7 @@ func keccakf(S *[25]uint64) {
 		S7 ^= (^bc3) & bc4
 		S8 ^= (^bc4) & bc0
 		S9 ^= (^bc0) & bc1
+
 		bc0 = S10
 		bc1 = S11
 		bc2 = S12
@@ -267,6 +268,7 @@ func keccakf(S *[25]uint64) {
 		S12 ^= (^bc3) & bc4
 		S13 ^= (^bc4) & bc0
 		S14 ^= (^bc0) & bc1
+
 		bc0 = S15
 		bc1 = S16
 		bc2 = S17
@@ -277,6 +279,7 @@ func keccakf(S *[25]uint64) {
 		S17 ^= (^bc3) & bc4
 		S18 ^= (^bc4) & bc0
 		S19 ^= (^bc0) & bc1
+
 		bc0 = S20
 		bc1 = S21
 		bc2 = S22
@@ -289,6 +292,7 @@ func keccakf(S *[25]uint64) {
 		S24 ^= (^bc0) & bc1
 
 		// iota
+		// A[0,0] = A[0,0] xor RC
 		S0 ^= roundConstants[r]
 	}
 
@@ -308,10 +312,9 @@ func uint64le(v []byte) uint64 {
 		uint64(v[5])<<40 |
 		uint64(v[6])<<48 |
 		uint64(v[7])<<56
-
 }
 
-func putUint64le(v []byte, x uint64) {
+func putUint64le(v []byte, x uint64) { //uint64 to byti
 	v[0] = byte(x)
 	v[1] = byte(x >> 8)
 	v[2] = byte(x >> 16)

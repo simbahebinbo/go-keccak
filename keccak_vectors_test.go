@@ -1,5 +1,13 @@
 package keccak
 
+type testcase struct {
+	msg       []byte
+	output224 []byte
+	output256 []byte
+	output384 []byte
+	output512 []byte
+}
+
 // extracted from ShortMsgKAT_{224,256,384,512}.txt
 var tstShort = []testcase{
 	testcase{
